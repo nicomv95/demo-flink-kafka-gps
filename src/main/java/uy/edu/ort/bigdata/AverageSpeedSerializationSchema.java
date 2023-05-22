@@ -1,6 +1,7 @@
 package uy.edu.ort.bigdata;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.streaming.connectors.kafka.KafkaSerializationSchema;
@@ -18,7 +19,7 @@ public class AverageSpeedSerializationSchema implements KafkaSerializationSchema
     public ProducerRecord<byte[], byte[]> serialize(Tuple2<String, Integer> element, Long timestamp) {
         return new ProducerRecord<>(
                         outputTopic,
-                        (element.f0 + "," + element.f1).getBytes(StandardCharsets.UTF_8));
+                        (Instant.now().toString() + "," + element.f0 + "," + element.f1).getBytes(StandardCharsets.UTF_8));
     }
     
 }
