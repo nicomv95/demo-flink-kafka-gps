@@ -1,15 +1,18 @@
 package uy.edu.ort.bigdata;
 
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.typeinfo.Types;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.tuple.Tuple3;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.source.KafkaSource;
+import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.windowing.assigners.SlidingProcessingTimeWindows;
-import org.apache.flink.streaming.api.windowing.time.Time;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
-import java.util.Properties;
+
+import java.time.Duration;
 
 public class Main {
     public static void main(String[] args) throws Exception {
@@ -20,29 +23,33 @@ public class Main {
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        Properties props = new Properties();
-        props.put("bootstrap.servers", bootstrapServer);
-        props.put("client.id", "flink-client");
+        KafkaSource<GpsData> kafkaSource = KafkaSource.<GpsData>builder()
+            .setBootstrapServers(bootstrapServer)
+            .setTopics(inputTopic)
+            .setGroupId("flink-group")
+            .setStartingOffsets(OffsetsInitializer.latest())
+            .setValueOnlyDeserializer(new GpsDataDeserializationSchema())
+            .build();
 
-        FlinkKafkaConsumer<GpsData> kafkaConsumer = new FlinkKafkaConsumer<>(inputTopic, new GpsDataDeserializationSchema(), props);
-        kafkaConsumer.setStartFromLatest();
-
-        FlinkKafkaProducer<Tuple2<String, Integer>> kafkaProducer = new FlinkKafkaProducer<>(
-                outputTopic,
-                new AverageSpeedSerializationSchema(outputTopic),
-                props,
-                FlinkKafkaProducer.Semantic.EXACTLY_ONCE);
+        KafkaSink<AvgData> kafkaSink = KafkaSink.<AvgData>builder()
+        .setBootstrapServers(bootstrapServer)
+        .setRecordSerializer(KafkaRecordSerializationSchema.builder()
+            .setTopic(outputTopic)
+            .setValueSerializationSchema(new AverageSpeedSerializationSchema())
+            .build()
+        ).setDeliveryGuarantee(DeliveryGuarantee.AT_LEAST_ONCE)
+        .build();
         
-        DataStream<GpsData> stream = env.addSource(kafkaConsumer);
+        
+        DataStream<GpsData> stream = env.fromSource(kafkaSource, WatermarkStrategy.noWatermarks(), "Kafka Source");
 
         stream
-                .map(data -> Tuple3.of(data.getIdVehiculo(), data.getVelocidad(), 1)).returns(Types.TUPLE(Types.STRING, Types.INT, Types.INT))
+                .map(data -> Tuple3.of(data.getId_vehiculo(), data.getVelocidad(), 1)).returns(Types.TUPLE(Types.STRING, Types.INT, Types.INT))
                 .keyBy(data -> data.f0)
-                .window(SlidingProcessingTimeWindows.of(Time.seconds(30), Time.seconds(5)))
+                .window(SlidingProcessingTimeWindows.of(Duration.ofSeconds(30), Duration.ofSeconds(5)))
                 .reduce((data1, data2) -> Tuple3.of(data1.f0, data1.f1 + data2.f1, data1.f2 + data2.f2))
-                .map(data -> Tuple2.of(data.f0, data.f1 / data.f2)).returns(Types.TUPLE(Types.STRING, Types.INT))
-                .addSink(kafkaProducer);
-
+                .map(data -> new AvgData(data.f0, data.f1 / data.f2)).returns(AvgData.class)
+                .sinkTo(kafkaSink);
         env.execute();
     }
 }

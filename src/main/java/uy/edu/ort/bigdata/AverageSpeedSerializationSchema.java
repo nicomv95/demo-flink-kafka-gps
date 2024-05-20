@@ -1,25 +1,28 @@
 package uy.edu.ort.bigdata;
 
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
+import org.apache.flink.api.common.serialization.SerializationSchema;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.json.JsonMapper;
 
-import org.apache.flink.api.java.tuple.Tuple2;
-import org.apache.flink.streaming.connectors.kafka.KafkaSerializationSchema;
-import org.apache.kafka.clients.producer.ProducerRecord;
+public class AverageSpeedSerializationSchema implements SerializationSchema<AvgData> {
 
-public class AverageSpeedSerializationSchema implements KafkaSerializationSchema<Tuple2<String, Integer>> {
-
-    private String outputTopic;
-
-    public AverageSpeedSerializationSchema(String outputTopic) {
-        this.outputTopic = outputTopic;
+    private transient ObjectMapper objectMapper;
+    
+    @Override
+    public void open(InitializationContext context) throws Exception {
+        objectMapper = JsonMapper.builder().build();
+        SerializationSchema.super.open(context);
     }
 
     @Override
-    public ProducerRecord<byte[], byte[]> serialize(Tuple2<String, Integer> element, Long timestamp) {
-        return new ProducerRecord<>(
-                        outputTopic,
-                        (Instant.now().toString() + "," + element.f0 + "," + element.f1).getBytes(StandardCharsets.UTF_8));
+    public byte[] serialize(AvgData element) {
+        try {
+            return objectMapper.writeValueAsBytes(element);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
     
 }

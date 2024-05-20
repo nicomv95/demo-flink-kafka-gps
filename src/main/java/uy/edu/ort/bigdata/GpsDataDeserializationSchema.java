@@ -2,6 +2,9 @@ package uy.edu.ort.bigdata;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.json.JsonMapper;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import java.io.IOException;
 
@@ -9,16 +12,16 @@ public class GpsDataDeserializationSchema implements DeserializationSchema<GpsDa
 
     private static final long serialVersionUID = 1L;
 
+    private transient ObjectMapper objectMapper;
+    
+    @Override
+    public void open(InitializationContext context) {
+        objectMapper = JsonMapper.builder().build().registerModule(new JavaTimeModule());
+    }
 
     @Override
     public GpsData deserialize(byte[] message) throws IOException {
-        GpsData data = new GpsData();
-        String csvData = new String(message);
-        String[] dataArray = csvData.split(",");
-        data.setVelocidad(Integer.parseInt(dataArray[3]));
-        data.setIdVehiculo(dataArray[4]);
-
-        return data;
+        return objectMapper.readValue(message, GpsData.class);
     }
 
     @Override
